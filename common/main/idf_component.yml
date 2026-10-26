@@ -1,0 +1,9 @@
+dependencies:
+  # JSON requests of the configuration page (web_server.cpp). esp_matter of esp-matter v1.6.1 already depends on
+  # espressif/cjson "^1.7.19"; same constraint here so both resolve to one copy.
+  espressif/cjson: "^1.7.19"
+  # RGB status LED (WS2812) of the ESP32-H2 Matter node of the two-chip version (status_ui.cpp)
+  espressif/led_strip:
+    version: "^3.0.0"
+    rules:
+      - if: "target == esp32h2"

@@ -1,0 +1,49 @@
+# Settings shared by both chips: BLE passive scanning of iBeacons, a Wi-Fi SoftAP only in the CONFIG mode, partition
+# table. The Matter settings are in sdkconfig.defaults.matter (only the ESP32-H2 bridge loads it, ble_presence.cmake);
+# the settings of each chip are in the sdkconfig.defaults of c3-scanner and h2-bridge (applied after this file).
+# Flash 4 MB or more (ESP32-C3 SuperMini, ESP32-H2 SuperMini: 4 MB). After changing these files run idf.py set-target (or delete sdkconfig): an existing
+# sdkconfig keeps the values set in it.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Own partition table (partitions.csv): one factory app (no OTA in this version), "nvs" for Matter / network / PHY,
+# "app_cfg" for the beacon configuration only. Table at 0xC000 as in the esp-matter examples.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0xC000
+
+# ---------------------------------------------------------------------------------------------------------------------
+# BLE: NimBLE, one host shared by Matter (peripheral: commissioning advertisement and connection) and the beacon
+# scanner (observer). Central role off (no connection to the beacons). Legacy advertising and scanning, as the
+# esp-matter examples.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
+CONFIG_BT_NIMBLE_EXT_ADV=n
+CONFIG_BT_NIMBLE_HCI_EVT_BUF_SIZE=70
+
+# Radio coexistence (BLE + Thread or Wi-Fi station in NORMAL, BLE + Wi-Fi SoftAP in CONFIG): arbitration by software,
+# required by the coexistence guide of ESP-IDF
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+CONFIG_LWIP_HOOK_IP6_ROUTE_DEFAULT=y
+CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Wi-Fi SoftAP of the CONFIG mode (started only in that mode, with its settings kept in RAM: wifi_config.cpp)
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
+# Wi-Fi code in flash instead of IRAM (code and data share one SRAM): more heap; the configuration page and Matter
+# need little throughput
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+
+# Configuration web server: phones send long headers (cookies, Accept-Language)
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+# cJSON recurses once per nesting level, on the stack of the web server task: with the default limit (1000) a
+# body of a few hundred "[" overflows that stack and resets the device. The API nests 3 levels deep.
+CONFIG_CJSON_NESTING_LIMIT=16

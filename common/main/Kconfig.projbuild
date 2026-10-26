@@ -1,0 +1,482 @@
+menu "BLE Presence x5"
+
+    choice PRESENCE_ROLE
+        prompt "Role of this chip"
+        default PRESENCE_ROLE_SINGLE
+        help
+            One chip does everything, or the two-chip version splits the work over
+            a UART link (ESP32-C3 scanning, ESP32-H2 Matter over Thread), so that
+            BLE scanning and Thread each have their own radio.
+
+        config PRESENCE_ROLE_SINGLE
+            bool "One chip: Matter + BLE scanning + web configuration"
+
+        config PRESENCE_ROLE_SCANNER
+            bool "Two chips, scanner (ESP32-C3): BLE scanning + web configuration, no Matter"
+            help
+                Computes the presence of the 20 slots and sends it every second
+                (and at every change) to the Matter node over the UART link, with
+                the device (MAC, model, battery) of each slot.
+
+        config PRESENCE_ROLE_MATTER_UART
+            bool "Two chips, Matter node (ESP32-H2): Matter bridge fed by the UART link"
+            help
+                A Matter bridge with one Occupancy Sensor per active slot of the
+                scanner. No BLE scanning, no web page and no CONFIG mode on this
+                chip: BLE is only used for commissioning.
+    endchoice
+
+    menu "Two-chip UART link"
+        depends on !PRESENCE_ROLE_SINGLE
+
+        config PRESENCE_LINK_UART_NUM
+            int "UART controller"
+            range 0 1
+            default 1
+
+        config PRESENCE_LINK_TX_GPIO
+            int "TX GPIO (to the RX of the other chip)"
+            range 0 30
+            default 20 if PRESENCE_ROLE_SCANNER
+            default 24
+
+        config PRESENCE_LINK_RX_GPIO
+            int "RX GPIO (from the TX of the other chip)"
+            range 0 30
+            default 21 if PRESENCE_ROLE_SCANNER
+            default 23
+
+        config PRESENCE_LINK_BAUD
+            int "Baud rate"
+            range 9600 921600
+            default 115200
+
+        config PRESENCE_LINK_TIMEOUT_SEC
+            int "Matter node: all sensors off after the scanner is silent for (s), 0: never"
+            depends on PRESENCE_ROLE_MATTER_UART
+            range 0 3600
+            default 120
+            help
+                Frames come every second. A short gap (the scanner restarting,
+                switching to its CONFIG mode) keeps the last states; a scanner that
+                stays silent this long is treated as gone and every sensor reports
+                "not occupied" rather than staying stuck on.
+
+    endmenu
+
+    menu "Device information"
+
+        config PRESENCE_VENDOR_NAME
+            string "Manufacturer (Basic Information VendorName)"
+            default "Haxeko"
+            help
+                Max 32 characters.
+
+        config PRESENCE_PRODUCT_NAME
+            string "Model (Basic Information ProductName)"
+            default "iBeacon Bridge" if PRESENCE_ROLE_MATTER_UART
+            default "BLE Presence x5"
+            help
+                Max 32 characters. Two-chip version: the name of the bridge.
+
+        config PRESENCE_DISCOVERY_NAME
+            string "Name advertised before commissioning (DNS-SD DN)"
+            default "iBeacon Bridge" if PRESENCE_ROLE_MATTER_UART
+            default "BLE Presence"
+            help
+                Max 32 characters.
+
+    endmenu
+
+    menu "BOOT button"
+
+        config PRESENCE_BOOT_GPIO
+            int "GPIO of the BOOT button (-1: no button)"
+            range -1 30
+            default 9
+            help
+                ESP32-C6-DevKitC-1 and ESP32-C6-DevKitM-1: GPIO9 (BOOT, SW1), wired
+                straight to GND with no external pull-up and no debounce capacitor
+                (C13 not fitted, schematic v1.4). GPIO9 is a strapping pin: held low
+                while the chip resets it selects the ROM download mode, so the
+                firmware only sees presses made while it is running. On the
+                DevKitC-1 the USB-UART auto-download circuit (DTR/RTS) can also pull
+                GPIO9 low when a terminal opens the UART port.
+
+        config PRESENCE_BOOT_ACTIVE_LOW
+            bool "Pressed when the pin is low"
+            default y
+
+        config PRESENCE_BOOT_PULLUP
+            bool "Enable the internal pull-up"
+            default y
+            help
+                The DevKit boards have no external pull-up on GPIO9.
+
+        config PRESENCE_BOOT_DEBOUNCE_MS
+            int "Debounce (ms)"
+            range 20 100
+            default 40
+
+        config PRESENCE_BOOT_POLL_MS
+            int "Polling period (ms)"
+            range 5 20
+            default 10
+
+        config PRESENCE_BOOT_CLICK_GAP_MS
+            int "Longest pause between two clicks (ms)"
+            range 500 5000
+            default 2000
+            help
+                From a release to the next press. The three clicks may be as slow
+                as wanted as long as no pause is longer than this; a longer pause
+                starts the count again with the next press. Each counted click is
+                logged ("BOOT click 1 of 3").
+
+        config PRESENCE_BOOT_CLICK_MAX_PRESS_MS
+            int "Longest press that still counts as a click (ms)"
+            range 300 3000
+            default 1500
+            help
+                A longer press is a hold: it never counts as one or more clicks
+                and it cancels the clicks counted so far.
+
+    endmenu
+
+    menu "Matter node button and LED"
+        depends on PRESENCE_ROLE_MATTER_UART
+
+        config PRESENCE_FACTORY_RESET_HOLD_SEC
+            int "Hold BOOT this long for a factory reset (s)"
+            range 3 30
+            default 5
+            help
+                Removes the Matter pairing (fabrics, Thread network) and the
+                bridged devices, once the button is released after this time (the
+                LED turns red when it is reached). The beacon configuration is on
+                the ESP32-C3 and stays. A double click on BOOT opens the pairing
+                window instead.
+
+        config PRESENCE_PAIRING_WINDOW_SEC
+            int "Pairing window opened by a double click (s)"
+            range 180 900
+            default 600
+            help
+                Over BLE while the bridge is not commissioned, over the Thread
+                network once it is (to add it to another controller). The LED
+                blinks blue while it is open.
+
+        choice PRESENCE_STATUS_LED
+            prompt "Status LED"
+            default PRESENCE_STATUS_LED_WS2812
+
+            config PRESENCE_STATUS_LED_WS2812
+                bool "RGB LED WS2812 (ESP32-H2 SuperMini: GPIO8)"
+
+            config PRESENCE_STATUS_LED_PLAIN
+                bool "One-colour LED on a GPIO"
+
+            config PRESENCE_STATUS_LED_NONE
+                bool "None"
+        endchoice
+
+        config PRESENCE_STATUS_LED_GPIO
+            int "GPIO of the status LED"
+            range 0 27
+            default 8
+
+        config PRESENCE_STATUS_LED_ACTIVE_HIGH
+            bool "The one-colour LED is on when the pin is high"
+            depends on PRESENCE_STATUS_LED_PLAIN
+            default y
+
+        config PRESENCE_BRIDGE_HEAP_RESERVE_KB
+            int "Bridge: free heap kept when adding a device, commissioned (KB)"
+            range 8 64
+            default 20
+            help
+                A bridged device (endpoint, Occupancy Sensing, Power Source,
+                Bridged Device Basic Information) takes a few KB of heap. One is
+                only added or restored while this much stays free for Matter
+                (sessions, subscriptions, reports, Thread); the others wait and
+                are shown as waiting on the scanner's page.
+
+        config PRESENCE_BRIDGE_COMMISSIONING_RESERVE_KB
+            int "Bridge: free heap kept when adding a device, not commissioned (KB)"
+            range 16 96
+            default 44
+            help
+                Before commissioning BLE is running and commissioning needs memory
+                of its own (certificates, sessions): devices that would leave less
+                than this wait, and are added right after commissioning, once BLE
+                is released. 44 KB is the free heap at boot of the esp-matter light
+                example on the ESP32-H2, which commissions with it.
+
+    endmenu
+
+    menu "Beacon battery (Eddystone-TLM)"
+        depends on !PRESENCE_ROLE_MATTER_UART
+
+        config PRESENCE_BATTERY_EMPTY_MV
+            int "Voltage read as 0 % (mV)"
+            range 1500 3600
+            default 2200
+            help
+                The battery level is linear between this voltage and the "100 %"
+                one, from the Eddystone-TLM frames of the beacon (sent between its
+                iBeacon frames, from the same address). Coin cells (CR2032, CR2477)
+                and two alkaline cells read about 3 V when new.
+
+        config PRESENCE_BATTERY_FULL_MV
+            int "Voltage read as 100 % (mV)"
+            range 1600 4200
+            default 3000
+
+        config PRESENCE_BATTERY_WARNING_PCT
+            int "Low battery at or below (%)"
+            range 1 60
+            default 20
+            help
+                Matter BatChargeLevel Warning: controllers show a low battery.
+
+        config PRESENCE_BATTERY_CRITICAL_PCT
+            int "Battery to replace at or below (%)"
+            range 0 50
+            default 10
+            help
+                Matter BatChargeLevel Critical and BatReplacementNeeded.
+
+    endmenu
+
+    menu "CONFIG mode (SoftAP and web page)"
+
+        config PRESENCE_CONFIG_IDLE_TIMEOUT_MIN
+            int "Back to NORMAL after this many minutes without interaction"
+            range 2 60
+            default 10
+            help
+                Interaction: loading the page, a button or a field of the page.
+                The periodic status/scan polls of an open page do not count, so a
+                forgotten phone cannot keep the device away from Matter.
+
+        config PRESENCE_AP_SSID_PREFIX
+            string "SoftAP SSID prefix"
+            default "VN-Presence-"
+            help
+                Followed by the last 4 hex digits of the SoftAP MAC address, e.g.
+                "VN-Presence-3A7C". Max 27 characters.
+
+        config PRESENCE_AP_PASSWORD
+            string "SoftAP password (empty: random per-device password)"
+            default ""
+            help
+                WPA2 passphrase of 8-63 printable characters, the same on every
+                device built with it. Empty (default): each device creates a random
+                12 character password once, keeps it in the app_cfg partition and
+                prints it on the serial console at every boot. The SoftAP is never
+                open.
+
+        config PRESENCE_AP_CHANNEL
+            int "SoftAP Wi-Fi channel"
+            range 1 13
+            default 1
+
+        config PRESENCE_AP_MAX_CONNECTIONS
+            int "Maximum SoftAP stations"
+            range 1 4
+            default 2
+
+        config PRESENCE_AP_LIMIT_TX_POWER
+            bool "Limit the SoftAP transmit power"
+            default y if IDF_TARGET_ESP32C3
+            help
+                ESP32-C3 SuperMini boards are widely reported to drop or refuse
+                Wi-Fi connections at the full 20 dBm (antenna and supply of the
+                board); 8.5 dBm is the usual cure, and it also eases an antenna
+                detuned by a board soldered next to it (two-chip version). The phone is near
+                the device while configuring it, so the lower power costs little.
+                CONFIG mode SoftAP only: the Matter Wi-Fi station of the ESP32-C3
+                Wi-Fi version keeps the driver default.
+
+        config PRESENCE_AP_MAX_TX_POWER
+            int "SoftAP maximum transmit power (0.25 dBm units)"
+            depends on PRESENCE_AP_LIMIT_TX_POWER
+            range 8 84
+            default 34
+            help
+                34 = 8.5 dBm. Steps the PHY uses (a value between two steps goes
+                down to the lower one): 8 (2 dBm), 20 (5), 28 (7), 34 (8.5),
+                44 (11), 52 (13), 56 (14), 60 (15), 66 (16.5), 72 (18), 80 (20 dBm).
+
+        config PRESENCE_CONFIG_SCAN_HOLD_OFF_SEC
+            int "BLE scanning starts this long after a phone joins the SoftAP (s)"
+            range 0 60
+            default 5
+            help
+                In CONFIG mode BLE scanning runs only while a phone is connected to
+                the SoftAP. With nobody connected the radio is left to Wi-Fi alone
+                (the phones' probe requests and connection attempts: SoftAP next to
+                BLE scanning is "C1, supported but the performance is unstable" in
+                the ESP-IDF coexistence table once a station connects), and a phone
+                that just joined gets these seconds for its DHCP request and the
+                first page. The beacon list fills from then on.
+
+        config PRESENCE_CONFIG_SCAN_INTERVAL_MS
+            int "BLE scan interval in CONFIG mode (ms)"
+            range 20 10240
+            default 160
+
+        config PRESENCE_CONFIG_SCAN_WINDOW_MS
+            int "BLE scan window in CONFIG mode (ms)"
+            range 10 PRESENCE_CONFIG_SCAN_INTERVAL_MS
+            default 40
+            help
+                Wi-Fi SoftAP with a connected phone and BLE scanning share the one
+                radio: 40 ms of 160 ms (25 %) leaves most of the time to the web
+                page. A beacon advertising every second still shows up in the list
+                within a few seconds when its signal is good.
+
+        config PRESENCE_CONFIG_ACTIVE_SCAN
+            bool "Active scanning in CONFIG mode (beacon names from scan responses)"
+            default y
+            help
+                Sends scan requests so beacons that put their name in the scan
+                response show it in the list. NORMAL mode always scans passively.
+
+        config PRESENCE_SCAN_CACHE_SIZE
+            int "Beacons kept in the CONFIG mode list"
+            range 8 64
+            default 32
+            help
+                When full, the beacon heard least recently is replaced.
+
+        config PRESENCE_SCAN_CACHE_EXPIRE_SEC
+            int "Remove a beacon from the list after this many seconds unheard"
+            range 10 600
+            default 120
+
+    endmenu
+
+    menu "BLE scanning (NORMAL mode)"
+
+        config PRESENCE_SCAN_INTERVAL_MS
+            int "Default scan interval (ms)"
+            range 20 10240
+            default 160
+            help
+                Default of the value set on the configuration page. The controller
+                listens for scan window ms every scan interval ms, on one of the
+                three advertising channels in turn (HCI unit 0.625 ms; the firmware
+                converts). Chance to hear one advertising event ~ window/interval.
+
+        config PRESENCE_SCAN_WINDOW_MS
+            int "Default scan window (ms)"
+            range 10 PRESENCE_SCAN_INTERVAL_MS
+            default 40
+            help
+                40 ms of 160 ms: the radio scans 25 % of the time and the network
+                keeps the rest. ESP32-C6 (Thread): BLE scanning next to a Thread end
+                device is "C1, supported but the performance is unstable" in the
+                ESP-IDF coexistence table, and 802.15.4 reception has the lowest
+                priority: a larger window hears beacons sooner but costs Thread
+                frames. ESP32-C3 (Wi-Fi): BLE scanning next to a connected Wi-Fi
+                station is "Y, supported and stable"; a larger window still leaves
+                Wi-Fi less time. Never the whole interval by default.
+
+        config PRESENCE_SCAN_RESUME_DELAY_SEC
+            int "Scanning resumes this long after the network is up or commissioning ends (s)"
+            range 0 120
+            default 10
+            help
+                Leaves the radio to the network (Thread attached / Wi-Fi connected)
+                while the device announces its services (SRP on Thread, mDNS on
+                Wi-Fi) and the controllers set up their sessions and subscriptions.
+
+        config PRESENCE_SCAN_WATCHDOG_SEC
+            int "Restart scanning when no advertisement at all arrives for (s), 0: never"
+            range 0 3600
+            default 120
+
+        config PRESENCE_REPORT_THROTTLE_MS
+            int "At most one report per slot to the presence task every (ms)"
+            range 0 2000
+            default 250
+            help
+                Every advertisement of a slot's beacon is matched, but the BLE host
+                task forwards at most one per period (with the strongest RSSI seen
+                in it), so a beacon advertising every 20 ms cannot flood the queue.
+                Far below any absence timeout.
+
+    endmenu
+
+    menu "Presence"
+
+        config PRESENCE_DEFAULT_TIMEOUT_SEC
+            int "Default absence timeout (s)"
+            range 10 3600
+            default 45
+            help
+                No valid packet for this long turns a slot off. It must cover many
+                advertising intervals of the beacon and the scan duty cycle: a
+                beacon advertising every 10 s can start at 45-60 s.
+
+        config PRESENCE_DEFAULT_RSSI_THRESHOLD
+            int "Default RSSI threshold of the optional filter (dBm)"
+            range -100 -20
+            default -80
+
+        config PRESENCE_DEFAULT_RSSI_HYSTERESIS
+            int "Default RSSI hysteresis of the optional filter (dB)"
+            range 0 20
+            default 5
+
+        config PRESENCE_ALLOW_DUPLICATE_BEACON
+            bool "Allow one beacon in several slots"
+            default n
+            help
+                Off: saving refuses a beacon (address and type) assigned to two
+                enabled slots.
+
+        config PRESENCE_CFG_PARTITION
+            string "NVS partition of the beacon configuration"
+            default "app_cfg"
+            help
+                Its own partition (partitions.csv), never the "nvs" partition of
+                the Matter fabrics and the network (Thread dataset / Wi-Fi
+                credentials).
+
+    endmenu
+
+    menu "Matter"
+
+        choice PRESENCE_OCCUPANCY_FEATURE
+            prompt "Occupancy Sensing feature"
+            default PRESENCE_OCCUPANCY_FEATURE_RF_SENSING
+            help
+                The sensing modality declared in the FeatureMap of the Occupancy
+                Sensing cluster (one is mandatory). Matter 1.6.1 defines RFSensing as
+                "sensing using analysis of radio signals, e.g.: RSSI, CSI and/or any
+                other metric from the signal", which is what receiving a beacon's
+                advertisements is. Other: "a modality not listed in the other bits".
+                PIR is not offered: the device has no infrared sensor.
+
+            config PRESENCE_OCCUPANCY_FEATURE_RF_SENSING
+                bool "RF Sensing"
+
+            config PRESENCE_OCCUPANCY_FEATURE_OTHER
+                bool "Other"
+
+        endchoice
+
+    endmenu
+
+    config PRESENCE_DIAG_PERIOD_SEC
+        int "Diagnostics log period (s), 0: off"
+        range 0 3600
+        default 60
+        help
+            Heap, scanner counters, per-slot packets and states, Thread role and
+            counters or Wi-Fi signal and disconnections (NORMAL), SoftAP stations
+            and list size (CONFIG).
+
+endmenu

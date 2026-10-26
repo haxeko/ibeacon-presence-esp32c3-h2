@@ -1,0 +1,63 @@
+# Two-chip version, ESP32-H2 Matter node. Applied after ../common/sdkconfig.defaults (shared
+# settings; its Wi-Fi settings are unknown symbols here, reported as NOTE lines by the build).
+CONFIG_IDF_TARGET="esp32h2"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../common/partitions.csv"
+CONFIG_CHIP_PROJECT_CONFIG="../common/main/chip_project_config.h"
+
+CONFIG_PRESENCE_ROLE_MATTER_UART=y
+
+# UART link to the ESP32-C3: TX GPIO24 -> C3 GPIO21, RX GPIO23 <- C3 GPIO20 (the pins marked TX / RX on the
+# ESP32-H2 SuperMini, i.e. UART0: the console moves to USB-Serial-JTAG only)
+CONFIG_PRESENCE_LINK_UART_NUM=1
+CONFIG_PRESENCE_LINK_TX_GPIO=24
+CONFIG_PRESENCE_LINK_RX_GPIO=23
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Own product ID (0x8000 H2 LD2410, 0x8001 C3 LD2410, 0x8002 C6 Thread, 0x8003 C3 Wi-Fi versions)
+CONFIG_DEVICE_PRODUCT_ID=0x8004
+# Name of the bridge in the controllers (Basic Information ProductName) and before commissioning (DNS-SD)
+CONFIG_PRESENCE_PRODUCT_NAME="iBeacon Bridge"
+CONFIG_PRESENCE_DISCOVERY_NAME="iBeacon Bridge"
+
+# BLE only for commissioning: the scanning is the ESP32-C3's, so NimBLE is released (and its RAM freed) once
+# commissioned
+CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING=y
+
+# Matter bridge (matter_bridge.cpp): root node, Aggregator on endpoint 1, one bridged device per presence slot
+# (20): Bridged Node + Occupancy Sensor + Power Source (battery), named after the beacon's MAC by the Bridged Device
+# Basic Information cluster. Each dynamic endpoint of the count costs static RAM in every cluster server (about
+# 0.5 KB), each device type slot 8 bytes per endpoint: the counts are those the bridge uses, no more.
+CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=22
+CONFIG_ESP_MATTER_MAX_DEVICE_TYPE_COUNT=4
+CONFIG_SUPPORT_BRIDGED_DEVICE_BASIC_INFORMATION_CLUSTER=y
+CONFIG_SUPPORT_POWER_SOURCE_CLUSTER=y
+# Critical events (StartUp, ShutDown, Leave...) are few: 1 KB of buffer instead of 4; debug events are not used.
+# 3.8 KB of RAM more for the heap of the bridged devices. (Turning the unused On/Off, Level and Color Control
+# clusters off saves nothing: esp-matter builds their servers anyway, sized by the 22 dynamic endpoints.)
+CONFIG_EVENT_LOGGING_CRIT_BUFFER_SIZE=1024
+CONFIG_EVENT_LOGGING_DEBUG_BUFFER_SIZE=256
+# Device type in commissionable discovery (DNS-SD "DT"): 14 = 0x000E Aggregator
+CONFIG_DEVICE_TYPE=14
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Thread, as the ESP32-C6 version (MTD, set to Minimal End Device, mains powered); the radio serves Thread only
+CONFIG_ENABLE_WIFI_STATION=n
+CONFIG_OPENTHREAD_ENABLED=y
+CONFIG_OPENTHREAD_MTD=y
+CONFIG_OPENTHREAD_SRP_CLIENT=y
+CONFIG_OPENTHREAD_DNS_CLIENT=y
+CONFIG_OPENTHREAD_LOG_LEVEL_DYNAMIC=n
+CONFIG_OPENTHREAD_LOG_LEVEL_NOTE=y
+CONFIG_OPENTHREAD_CLI=n
+CONFIG_LWIP_IPV6_AUTOCONFIG=n
+CONFIG_LWIP_IPV6_NUM_ADDRESSES=8
+CONFIG_LWIP_MULTICAST_PING=y
+CONFIG_USE_MINIMAL_MDNS=n
+CONFIG_ENABLE_EXTENDED_DISCOVERY=y
+CONFIG_SUPPORT_THREAD_NETWORK_DIAGNOSTICS_CLUSTER=y
+
+# No Matter console: nothing needs it (the pairing code and the factory reset are on the scanner's page and the BOOT
+# button), and without it the heap has about 10 KB more for the bridged devices (esp-matter docs, "Disable the
+# chip-shell", ESP32-H2). The log stays on USB-Serial-JTAG.
+CONFIG_ENABLE_CHIP_SHELL=n

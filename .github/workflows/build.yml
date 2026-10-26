@@ -1,0 +1,72 @@
+name: Build and test (ESP32-C3 scanner + ESP32-H2 iBeacon Bridge)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tests (g++ with AddressSanitizer / UBSan, no ESP-IDF)
+        run: common/test/host/run.sh
+
+  web-ui-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: common/test/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Headless check of the configuration page (Playwright, mocked device API)
+        run: |
+          npm install --no-save --no-package-lock playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node ui_test.js
+
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/esp-matter:release-v1.6.1_idf_v6.0.2
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: c3-scanner
+            target: esp32c3
+            name: ble_presence_scanner_c3
+          - dir: h2-bridge
+            target: esp32h2
+            name: matter_ble_presence_h2
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the firmware version comes from the git commit count
+      - name: Build (${{ matrix.target }})
+        shell: bash
+        run: |
+          git config --global --add safe.directory '*'
+          pushd $IDF_PATH && . ./export.sh && popd
+          pushd $ESP_MATTER_PATH && . ./export.sh && popd
+          idf.py set-target ${{ matrix.target }}
+          idf.py build
+          idf.py size
+          idf.py merge-bin -o ${{ matrix.name }}_merged.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            ${{ matrix.dir }}/build/${{ matrix.name }}.bin
+            ${{ matrix.dir }}/build/${{ matrix.name }}.elf
+            ${{ matrix.dir }}/build/bootloader/bootloader.bin
+            ${{ matrix.dir }}/build/partition_table/partition-table.bin
+            ${{ matrix.dir }}/build/flash_args
+            ${{ matrix.dir }}/build/${{ matrix.name }}_merged.bin

@@ -1,0 +1,15 @@
+# Name,          Type, SubType,  Offset,   Size,     Flags
+# 4 MB flash (ESP32-C6-MINI-1 N4 of the DevKitM-1; the first 4 MB of the 8 MB ESP32-C6-WROOM-1 N8 of the DevKitC-1).
+# Partition table at 0xC000 (CONFIG_PARTITION_TABLE_OFFSET), bootloader below it; app at a 64 KB boundary.
+# esp_secure_cert, nvs, nvs_keys, fctry: same places as the esp-matter examples (production DAC / factory data).
+# nvs: Matter fabrics and keys, Thread dataset, PHY calibration. Never erased by this firmware.
+# app_cfg: beacon configuration and SoftAP password only (config_store.cpp): can be formatted without touching
+#          the Matter pairing.
+# No OTA in this version: one factory app of 3.6 MB (the build reports its use, see README).
+esp_secure_cert, 0x3F, ,         0xD000,   0x2000,   encrypted
+nvs,             data, nvs,      0x10000,  0xC000,
+nvs_keys,        data, nvs_keys, 0x1C000,  0x1000,   encrypted
+phy_init,        data, phy,      0x1D000,  0x1000,
+factory,         app,  factory,  0x20000,  0x3A0000,
+app_cfg,         data, nvs,      0x3C0000, 0x6000,
+fctry,           data, nvs,      0x3E0000, 0x6000,

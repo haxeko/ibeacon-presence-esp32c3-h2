@@ -1,0 +1,10 @@
+// Kconfig values for the host tests (the defaults of main/Kconfig.projbuild)
+#pragma once
+
+#define CONFIG_PRESENCE_SCAN_INTERVAL_MS 160
+#define CONFIG_PRESENCE_SCAN_WINDOW_MS 40
+#define CONFIG_PRESENCE_DEFAULT_TIMEOUT_SEC 45
+#define CONFIG_PRESENCE_DEFAULT_RSSI_THRESHOLD (-80)
+#define CONFIG_PRESENCE_DEFAULT_RSSI_HYSTERESIS 5
+#define CONFIG_PRESENCE_CFG_PARTITION "app_cfg"
+#define CONFIG_PRESENCE_AP_PASSWORD ""
